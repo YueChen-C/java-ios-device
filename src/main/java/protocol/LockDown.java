@@ -3,6 +3,7 @@ package protocol;
 import com.dd.plist.*;
 import lombok.extern.log4j.Log4j;
 import protocol.model.Device;
+import util.Cart;
 import util.Version;
 import exception.lockdown.InitializationError;
 import exception.lockdown.NotPairedError;
@@ -37,15 +38,15 @@ public class LockDown {
     }
     protected void init(Device device) throws Exception {
         deviceID = device.deviceId;
+        uniqueDeviceID = device.serialNumber;
         svc = device.connect();
         verifyQueryType();
         getValue();
-        paired=Pair();
     }
 
     public PlistSocket startService(String name) throws Exception {
         if (!paired){
-            throw new NotPairedError("Unable to start service={name!r} - not paired");
+            paired=Pair();
         }
         NSData escrow_bag = (NSData) record.get("EscrowBag");
         NSDictionary root = new NSDictionary();
@@ -88,13 +89,60 @@ public class LockDown {
             return true;
         }
         return false;
+
     }
 
-    protected NSDictionary pairFull(){
+    /**
+     * 证书重新配对
+     * @return pairRecord 证书信息
+     * @throws Exception
+     */
+    public NSDictionary pairFull() throws Exception {
+        NSData devicePublicKey = (NSData) getValueKey("DevicePublicKey");
+        NSString wifiAddress = (NSString) getValueKey("WiFiAddress");
+        String systemBUID = new UsbMux().readSystemBUID();
+
+        if (devicePublicKey==null){
+            log.error("Unable to retrieve DevicePublicKey");
+        }
+        log.debug("Creating host key & certificate");
+
+        String devicePublicKeyStr = new String(devicePublicKey.bytes(),"UTF-8");
+        Cart cart =new Cart().createCert(devicePublicKeyStr);
+
+        NSDictionary pairRecord = new NSDictionary(); //  PublicKey
+        pairRecord.put("DevicePublicKey", devicePublicKeyStr.getBytes());
+        pairRecord.put("DeviceCertificate",cart.devCertPem.getBytes());
+        pairRecord.put("HostCertificate",cart.certPem.getBytes());
+        pairRecord.put("HostID","22D256B8-132D-3CEF-96D4-B1852CCC8117");
+        pairRecord.put("RootCertificate",cart.certPem.getBytes());
+        pairRecord.put("SystemBUID",systemBUID);
+
+        NSDictionary pairingOptions = new NSDictionary();
+        pairingOptions.put("ExtendedPairingErrors",true);
+
+        NSDictionary root = new NSDictionary(); // Pair pull
+        root.put("Request","Pair");
+        root.put("PairRecord",pairRecord);
+        root.put("ProtocolVersion","2");
+        root.put("PairingOptions",pairingOptions);
+
+        NSDictionary resp = svc.sendRecvPacket(root);
+
+        if (resp!=null &&  resp.containsValue("EscrowBag")){
+            pairRecord.put("HostPrivateKey", cart.publicKeyPem.getBytes());
+            pairRecord.put("EscrowBag",resp.get("EscrowBag"));
+            pairRecord.put("WiFiMACAddress",wifiAddress.toString());
+            new UsbMux().savePairRecord(uniqueDeviceID,pairRecord,deviceID);
+            return pairRecord;
+        }else if(resp!=null && resp.get("Error")!=null){
+            svc.close();
+            log.error(resp.get("Error").toString());
+        }
         return null;
     }
 
-    protected NSDictionary validatePairing(){ // 进行校验配对
+    protected NSDictionary validatePairing() throws Exception { // 进行校验配对
         NSDictionary pairRecord = getPairRecord();
         if (pairRecord==null){
             return null;
@@ -118,7 +166,6 @@ public class LockDown {
         root.put("HostID",hostId);
         root.put("SystemBUID",systemBUID);
         NSDictionary resp = svc.sendRecvPacket(root);
-        sessionId = resp.get("SessionID").toString();
         if (resp.containsKey("Error")){
             if (resp.get("Error").toString().equals("InvalidHostID")){ //  InvalidHostID 乱了的话重置一下
                 new UsbMux().deletePairRecord(uniqueDeviceID);
@@ -129,6 +176,7 @@ public class LockDown {
                 return pairRecord;
             }
         }
+        sessionId = resp.get("SessionID").toString();
 
         if (resp.containsKey("EnableSessionSSL")){
             NSData NSHostCertificate = (NSData) pairRecord.get("HostCertificate");
@@ -138,9 +186,10 @@ public class LockDown {
             buff.put(NSHostCertificate.bytes());
             buff.put("\n".getBytes());
             buff.put(HostPrivateKey.bytes());
-            sslFile = writeCachePair(uniqueDeviceID, buff.array());
+//            sslFile = writeCachePair(uniqueDeviceID, buff.array());
+            sslFile = new File("/Users/chenpeijie/.cache/pymobiledevice/00008030-001A690E2EC3802E.pem");
             try {
-                svc.sslStart(sslFile.getPath());
+                svc.sslStart("/Users/chenpeijie/.cache/pymobiledevice/00008030-001A690E2EC3802E.pem");
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -163,24 +212,22 @@ public class LockDown {
         NSDictionary data = svc.sendRecvPacket(root);
         NSDictionary value= (NSDictionary) data.get("Value");
         productVersion = value.get("ProductVersion").toString();
-        uniqueDeviceID = value.get("UniqueDeviceID").toString();
-    }
-
-    public NSDictionary getValue(String domain){
-        NSDictionary root = new NSDictionary();
-        root.put("Request","GetValue");
-        root.put("Domain",domain);
-        NSDictionary data = svc.sendRecvPacket(root);
-        return (NSDictionary) data.get("Value");
     }
 
     public NSDictionary getValue(String domain,String key){
         NSDictionary root = new NSDictionary();
         root.put("Request","GetValue");
         root.put("Domain",domain);
-        root.put("Key",key);
         NSDictionary data = svc.sendRecvPacket(root);
         return (NSDictionary) data.get("Value");
+    }
+
+    public NSObject getValueKey(String key){
+        NSDictionary root = new NSDictionary();
+        root.put("Request","GetValue");
+        root.put("Key",key);
+        NSDictionary data = svc.sendRecvPacket(root);
+        return data.get("Value");
     }
 
     static File getLockdownPath() {
@@ -218,8 +265,5 @@ public class LockDown {
     static File getHomeFile() {
         return new File(System.getProperty("user.home"), ".cache/pymobiledevice");
     }
-
-
-
 
 }

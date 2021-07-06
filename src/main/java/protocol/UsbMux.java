@@ -126,7 +126,7 @@ public class UsbMux {
         return sendRecv(root);
     }
 
-    public NSDictionary savePairRecord(String udid,NSDictionary pairRecord,String deviceID){
+    public NSDictionary savePairRecord(String udid,NSDictionary pairRecord,int deviceID){
         NSDictionary root = new NSDictionary();
         root.put("MessageType","SavePairRecord");
         root.put("PairRecordData",pairRecord);

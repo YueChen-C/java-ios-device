@@ -21,7 +21,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
-import static util.PEMImporter.createSSLFactory;
+import static util.Cart.createSSLFactory;
 
 @Log4j
 public class PlistSocket implements AutoCloseable{
@@ -82,6 +82,7 @@ public class PlistSocket implements AutoCloseable{
         try {
             ByteBuffer buffer;
             String data = payload.toXMLPropertyList();
+            log.debug(data);
             byte[] bytes=data.getBytes(StandardCharsets.UTF_8);
             if (this.first){
                 int len = (16 + bytes.length);
