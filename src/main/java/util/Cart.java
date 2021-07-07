@@ -7,7 +7,7 @@ import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMDecryptorProvider;
 import org.bouncycastle.openssl.PEMEncryptedKeyPair;
@@ -169,7 +169,7 @@ public class Cart {
      * @return
      * @throws Exception
      */
-    public Key parsePEMKey(String PublicKey)  throws Exception{
+    public static Key parsePEMKey(String PublicKey)  throws Exception{
         Security.addProvider(new BouncyCastleProvider());
         try (StringReader reader = new StringReader(PublicKey); //
              PEMParser pemParser = new PEMParser(reader)) {
@@ -230,9 +230,10 @@ public class Cart {
         PublicKey devKey = (PublicKey) parsePEMKey(devicePublicKey);
 
         certPem = makeCert(publicKey,privateKey);
+
         devCertPem = makeCert(devKey,privateKey);
 
-        JcaPKCS8Generator gen1 = new JcaPKCS8Generator(privateKey, null); // 需要转成 pkcs8 ios 才能识别
+        JcaPKCS8Generator gen1 = new JcaPKCS8Generator(privateKey, null); // 需要转成 pkcs8
         publicKeyPem = x509CertificateToPem(gen1.generate());
 
         return this;
@@ -264,9 +265,9 @@ public class Cart {
 
         X500Name subject = x500NameBld.build();
 
-        JcaX509v1CertificateBuilder certBldr = new JcaX509v1CertificateBuilder(
+        JcaX509v3CertificateBuilder certBldr = new JcaX509v3CertificateBuilder(
                 subject,
-                calculateSerialNumber(),
+                BigInteger.valueOf(1),
                 calculateDate(0),
                 calculateDate(24 * 31),
                 subject,

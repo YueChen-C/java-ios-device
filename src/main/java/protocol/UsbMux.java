@@ -10,9 +10,14 @@ import exception.MuxError;
 import exception.NoMuxDeviceFound;
 import util.Proto;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+
 @Log4j
 public class UsbMux {
     private int tag = 0;
+    private Object ArrayList;
+
     public PlistSocket createConnection(){
         return new PlistSocket(next_tag());
     }
@@ -44,25 +49,18 @@ public class UsbMux {
 
 
     public Device findDevice(boolean network) throws NoMuxDeviceFound {
-        NSArray devices = (NSArray) getDeviceList().get("DeviceList");
-        NSObject[] deviceList = devices.getArray();
-        if (deviceList.length<=0){
+        java.util.ArrayList<Device> devices = getDeviceList(network);
+        if (devices.size()<=0){
             throw new NoMuxDeviceFound("not found Device:");
         }
-        NSDictionary device= (NSDictionary) deviceList[0];
-        NSDictionary properties = (NSDictionary) device.get("Properties");
-
-        return buildDevice(properties);
+        return devices.get(0);
     }
 
     public Device findDevice(String serial, boolean network) throws NoMuxDeviceFound {
-        NSArray devices = (NSArray) getDeviceList().get("DeviceList");
-        for (NSObject d:devices.getArray()) {
-            NSDictionary device = (NSDictionary) d;
-            NSDictionary Properties= (NSDictionary) device.get("Properties");
-            String SerialNumber= Properties.get("SerialNumber").toString();
-            if (serial.equals(SerialNumber)){
-                return buildDevice(Properties);
+        java.util.ArrayList<Device> devices = getDeviceList(network);
+        for (Device device:devices) {
+            if (serial.equals(device.serialNumber)){
+                return device;
             }
         }
         throw new NoMuxDeviceFound("not found serial:"+serial);
@@ -87,13 +85,26 @@ public class UsbMux {
     }
 
 
-    public NSDictionary getDeviceList(){
+    public java.util.ArrayList<Device> getDeviceList(boolean network){
         NSDictionary root = new NSDictionary();
         root.put("MessageType","ListDevices");
         root.put("ClientVersionString","libusbmuxd");
         root.put("ProgName", Proto.PROGRAM_NAME);
         root.put("kLibUSBMuxVersion",3);
-        return sendRecv(root);
+        NSDictionary data = sendRecv(root);
+
+        NSArray DeviceList = (NSArray) data.get("DeviceList");
+        ArrayList<Device> devices = new ArrayList<>();
+        for (NSObject d:DeviceList.getArray()) {
+            NSDictionary deviceData = (NSDictionary) d;
+            NSDictionary Properties= (NSDictionary) deviceData.get("Properties");
+            String ConnectionType= Properties.get("ConnectionType").toString();
+            if (!network && ConnectionType.equals("Network")){
+                continue;
+            }
+            devices.add(buildDevice(Properties));
+        }
+        return devices;
     }
 
     public String readSystemBUID(){
@@ -127,13 +138,16 @@ public class UsbMux {
     }
 
     public NSDictionary savePairRecord(String udid,NSDictionary pairRecord,int deviceID){
+
+        String data = pairRecord.toXMLPropertyList();
+        byte[] bytes=data.getBytes(StandardCharsets.UTF_8);
         NSDictionary root = new NSDictionary();
         root.put("MessageType","SavePairRecord");
-        root.put("PairRecordData",pairRecord);
+        root.put("PairRecordData",bytes);
         root.put("DeviceID",deviceID);
         root.put("ClientVersionString","libusbmuxd");
         root.put("ProgName",Proto.PROGRAM_NAME);
-        root.put("kLibUSBMuxVersion",3);
+        root.put("PairRecordID",udid);
         return sendRecv(root);
     }
 

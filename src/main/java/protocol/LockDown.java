@@ -1,17 +1,17 @@
 package protocol;
 
 import com.dd.plist.*;
+import exception.lockdown.InitializationError;
+import exception.lockdown.StartServiceError;
 import lombok.extern.log4j.Log4j;
 import protocol.model.Device;
 import util.Cart;
 import util.Version;
-import exception.lockdown.InitializationError;
-import exception.lockdown.NotPairedError;
-import exception.lockdown.StartServiceError;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
+import java.security.cert.CertificateParsingException;
 
 @Log4j
 public class LockDown {
@@ -25,6 +25,7 @@ public class LockDown {
     public String sessionId;
     public File sslFile;
     public boolean paired;
+    public Device device;
 
     public LockDown(String serial, boolean network) throws Exception {
         this.network = network;
@@ -37,6 +38,7 @@ public class LockDown {
         init(device);
     }
     protected void init(Device device) throws Exception {
+        this.device = device;
         deviceID = device.deviceId;
         uniqueDeviceID = device.serialNumber;
         svc = device.connect();
@@ -98,6 +100,7 @@ public class LockDown {
      * @throws Exception
      */
     public NSDictionary pairFull() throws Exception {
+        log.info(" DevicePublicKey pair full");
         NSData devicePublicKey = (NSData) getValueKey("DevicePublicKey");
         NSString wifiAddress = (NSString) getValueKey("WiFiAddress");
         String systemBUID = new UsbMux().readSystemBUID();
@@ -129,11 +132,12 @@ public class LockDown {
 
         NSDictionary resp = svc.sendRecvPacket(root);
 
-        if (resp!=null &&  resp.containsValue("EscrowBag")){
+        if (resp!=null &&  resp.containsKey("EscrowBag")){
             pairRecord.put("HostPrivateKey", cart.publicKeyPem.getBytes());
             pairRecord.put("EscrowBag",resp.get("EscrowBag"));
             pairRecord.put("WiFiMACAddress",wifiAddress.toString());
             new UsbMux().savePairRecord(uniqueDeviceID,pairRecord,deviceID);
+            sslFile = writeCachePair(uniqueDeviceID, pairRecord);
             return pairRecord;
         }else if(resp!=null && resp.get("Error")!=null){
             svc.close();
@@ -179,19 +183,13 @@ public class LockDown {
         sessionId = resp.get("SessionID").toString();
 
         if (resp.containsKey("EnableSessionSSL")){
-            NSData NSHostCertificate = (NSData) pairRecord.get("HostCertificate");
-            NSData HostPrivateKey = (NSData) pairRecord.get("HostPrivateKey");
-            byte[] allByteArray = new byte[HostPrivateKey.bytes().length + 1 + NSHostCertificate.bytes().length];
-            ByteBuffer buff = ByteBuffer.wrap(allByteArray);
-            buff.put(NSHostCertificate.bytes());
-            buff.put("\n".getBytes());
-            buff.put(HostPrivateKey.bytes());
-//            sslFile = writeCachePair(uniqueDeviceID, buff.array());
-            sslFile = new File("/Users/chenpeijie/.cache/pymobiledevice/00008030-001A690E2EC3802E.pem");
+            sslFile = writeCachePair(uniqueDeviceID, pairRecord);
             try {
-                svc.sslStart("/Users/chenpeijie/.cache/pymobiledevice/00008030-001A690E2EC3802E.pem");
-            } catch (Exception e) {
-                e.printStackTrace();
+                svc.sslStart(sslFile.getPath());
+            } catch (CertificateParsingException ignored){
+                svc = device.connect();
+                log.error("ssl Handshake error");
+                return null;
             }
         }
         return pairRecord;
@@ -249,12 +247,20 @@ public class LockDown {
         }
     }
 
-    static File writeCachePair(String uniqueDeviceID,byte[] data) {
+    static File writeCachePair(String uniqueDeviceID,NSDictionary pairRecord) {
+        NSData NSHostCertificate = (NSData) pairRecord.get("HostCertificate");
+        NSData HostPrivateKey = (NSData) pairRecord.get("HostPrivateKey");
+        byte[] allByteArray = new byte[HostPrivateKey.bytes().length + 1 + NSHostCertificate.bytes().length];
+        ByteBuffer buff = ByteBuffer.wrap(allByteArray);
+        buff.put(NSHostCertificate.bytes());
+        buff.put("\n".getBytes());
+        buff.put(HostPrivateKey.bytes());
+
         try {
             File home = getHomeFile();
             File cache = new File(home,uniqueDeviceID+ ".pem");
             try (FileOutputStream fileOutSt = new FileOutputStream(cache)) {
-                fileOutSt.write(data);
+                fileOutSt.write(buff.array());
             }
             return cache;
         } catch (Exception e){

@@ -70,6 +70,8 @@ public class PlistSocket implements AutoCloseable{
     protected NSDictionary decodeByteMsg(byte[] bytes) {
         try {
             NSObject data = PropertyListParser.parse(bytes);
+            log.debug("<<<<<<<<<<<<<<<<<<<< 接收 plist ");
+
             log.debug(data.toXMLPropertyList());
             return (NSDictionary) data;
         } catch (Exception e) {
@@ -82,6 +84,7 @@ public class PlistSocket implements AutoCloseable{
         try {
             ByteBuffer buffer;
             String data = payload.toXMLPropertyList();
+            log.debug(">>>>>>>>>>>>>>>>>>> 发送 plist ");
             log.debug(data);
             byte[] bytes=data.getBytes(StandardCharsets.UTF_8);
             if (this.first){
