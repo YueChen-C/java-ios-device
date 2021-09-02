@@ -1,16 +1,18 @@
 package protocol;
 
-import com.dd.plist.NSArray;
-import com.dd.plist.NSDictionary;
-import com.dd.plist.NSNumber;
-import com.dd.plist.NSObject;
+import com.dd.plist.*;
 import lombok.extern.log4j.Log4j;
+import org.xml.sax.SAXException;
 import protocol.model.Device;
 import exception.MuxError;
 import exception.NoMuxDeviceFound;
 import util.Proto;
+import util.pblist.NSKeyedArchiver;
 
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.util.ArrayList;
 
 @Log4j
@@ -118,13 +120,20 @@ public class UsbMux {
     }
 
     public NSDictionary getPairRecord(String udid){
-        NSDictionary root = new NSDictionary();
-        root.put("MessageType","ReadPairRecord");
-        root.put("PairRecordID",udid);
-        root.put("ClientVersionString","libusbmuxd");
-        root.put("ProgName",Proto.PROGRAM_NAME);
-        root.put("kLibUSBMuxVersion",3);
-        return sendRecv(root);
+        try {
+            NSDictionary root = new NSDictionary();
+            root.put("MessageType","ReadPairRecord");
+            root.put("PairRecordID",udid);
+            root.put("ClientVersionString","libusbmuxd");
+            root.put("ProgName",Proto.PROGRAM_NAME);
+            root.put("kLibUSBMuxVersion",3);
+            NSDictionary data =  sendRecv(root);
+            NSData PairRecordData = (NSData) data.get("PairRecordData");
+            return (NSDictionary) PropertyListParser.parse(PairRecordData.bytes());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     public NSDictionary deletePairRecord(String udid){
