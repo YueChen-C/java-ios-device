@@ -259,8 +259,11 @@ public class LockDown {
         try {
             File home = getHomeFile();
             File cache = new File(home,uniqueDeviceID+ ".pem");
+            cache.getParentFile().mkdirs();
+            cache.createNewFile();
             try (FileOutputStream fileOutSt = new FileOutputStream(cache)) {
                 fileOutSt.write(buff.array());
+                fileOutSt.flush();
             }
             return cache;
         } catch (Exception e){
